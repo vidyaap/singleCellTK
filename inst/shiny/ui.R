@@ -179,7 +179,8 @@ shinyUI(
       theme = shinytheme("yeti"),
       navbarMenu(
         "Data",
-        tabPanel("Import Single Cell Data", shinyPanelImport),
+        # tabPanel("Import Single Cell Data", shinyPanelImport),
+        tabPanel("Import Single Cell Data", importModuleUI("import")),
         tabPanel("Import Gene Sets", shinyPanelGeneSets),
         tabPanel("Column Annotation", shinyPanelColumnAnnotation),
         tabPanel("Row Annotation", shinyPanelRowAnnotation),

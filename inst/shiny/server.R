@@ -6,7 +6,6 @@ options(shiny.autoreload = TRUE)
 internetConnection <- suppressWarnings(Biobase::testBioCConnection())
 source("partials.R", local = TRUE) # creates several smaller UI components
 source("shinyDirectoryInput.R", local = TRUE) # shinyDirectoryInput source code
-# R.utils::sourceDirectory("qc_help_pages")
 source("qc_help_pages/ui_decontX_help.R", local = TRUE) # creates several smaller UI components
 source("qc_help_pages/ui_cxds_help.R", local = TRUE) # creates several smaller UI components
 source("qc_help_pages/ui_bcds_help.R", local = TRUE) # creates several smaller UI components
@@ -14,7 +13,8 @@ source("qc_help_pages/ui_cxds_bcds_hybrid_help.R", local = TRUE) # creates sever
 source("qc_help_pages/ui_doubletFinder_help.R", local = TRUE) # creates several smaller UI components
 source("qc_help_pages/ui_scrublet_help.R", local = TRUE) # creates several smaller UI components
 source("qc_help_pages/ui_dc_and_qcm_help.R", local = TRUE) # creates several smaller UI components
-# source("server_partials/server_01_data.R", local = TRUE) # functions for Data section
+
+source("server_partials/server_01_data.R", local = TRUE) # functions for Data Import section
 
 # Define server logic required to draw a histogram
 shinyServer(function(input, output, session) {
@@ -258,638 +258,45 @@ shinyServer(function(input, output, session) {
   #-----------------------------------------------------------------------------
 
   # Upload data through shiny app
-
-  # Components for uploading directories if user is importing from a preprocessing step
-  volumes <- c(Home = fs::path_home(), "R Installation" = R.home(), shinyFiles::getVolumes()())
-
-  sample <- reactive(input$sample)
-  output$sample <- renderText({
-    shinyFiles::parseDirPath(volumes, sample())
-  })
-  sampleFile <- reactive(input$sampleFile)
-  output$sampleFile <- renderText({
-    shinyFiles::parseFilePaths(volumes, sampleFile())$datapath
-  })
-  output$base = renderText({
-    readDirectoryInput(session, 'directory')
-  })
-
-  allImportEntries <- reactiveValues(samples=list(), id_count=0)
-
-
-  # modal to import all preprocessed data except for CellRanger data
-  importModal <- function(failed=FALSE, needsDir=FALSE) {
-
-    modalDialog(
-      h3("Sample Name"),
-      textInput("sampleName", "*This is the name you would like to give your sample."),
-      # only some functions need this input
-      if (needsDir)
-        h3("Sample ID"),
-      if (needsDir)
-        textInput("sampleID", "*This name must match your sample's directory name."),
-
-
-      h3("Base Directory"),
-      directoryInput('directory', label = 'Choose Directory', value = '~'),
-
-      if (failed)
-        div(tags$b("Please fill out all the required fields", style = "color: red;")),
-
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("modalOk", "OK")
-      )
-    )
-  }
-
-
-  # modal to import CellRanger data
-  importCRModal <- function() {
-    modalDialog(
-      h3("Add a Cell Ranger Sample"),
-      tags$br(),
-      h4("Option 1 - Select a directory containing multiple sample directories (and no other directories)."),
-      actionButton("crOpt1", "Add"),
-      tags$br(),
-      h4("Option 2 - Select a single sample directory."),
-      actionButton("crOpt2", "Add"),
-      tags$br(),
-      h4("Option 3 - Select a directory containing your data files (barcodes.tsv, features.tsv, matrix.mtx)."),
-      actionButton("crOpt3", "Add"),
-
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("crOK", "OK")
-      )
-    )
-  }
-  # Upload a sample directory (CR) (parent of 'outs' directory)
-  importCRSDir <- function(failed = FALSE) {
-    modalDialog(
-      h3("Sample Directory"),
-      directoryInput('sDirectory', label = 'Choose Directory', value = '~'),
-      h3("Sample Name"),
-      h5("If you do not provide an alternate sample name, the sample name will be set to the sample directory name."),
-      textInput("sSampleID", ""),
-
-      if (failed)
-        div(tags$b("Please fill out all the required fields", style = "color: red;")),
-
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("SDirOK", "OK")
-      )
-    )
-  }
-  # Upload a data directory (CR) (parent of 'data files')
-  importCRDDir <- function(failed = FALSE) {
-    modalDialog(
-      h3("Data Directory"),
-      directoryInput('directory', label = 'Choose Directory', value = '~'),
-      h3("Sample Name"),
-
-      textInput("dSampleID", "*This field is mandatory when uploading a data directory"),
-
-      if (failed)
-        div(tags$b("Please fill out all the required fields", style = "color: red;")),
-
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("DDirOK", "OK")
-      )
-    )
-  }
-  # Upload a base directory (CR) (parent of possibly multiple sample directories)
-  importCRBDir <- function(failed = FALSE) {
-    modalDialog(
-      h3("Base Directory"),
-      directoryInput('bDirectory', label = 'Choose Directory', value = '~'),
-      wellPanel(h5("*For any sample names that you do not provide, the sample name will be set to the sample directory name.")),
-
-      tags$div(id = "bDirTable"),
-
-      if (failed)
-        div(tags$b("Please fill out all the required fields", style = "color: red;")),
-
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("BDirOK", "OK")
-      )
-    )
-  }
-
-
-  # see https://github.com/wleepang/shiny-directory-input
-  observeEvent(
-    ignoreNULL = TRUE,
-    eventExpr = {
-      input$directory
-    },
-    handlerExpr = {
-      if (input$directory > 0) {
-        # condition prevents handler execution on initial app launch
-        path = choose.dir(default = readDirectoryInput(session, 'directory'),
-                          caption="Choose a directory")
-        updateDirectoryInput(session, 'directory', value = path)
-      }
+  import_mod <- callModule(importModuleServer, "import", vals)
+  observeEvent(input[["import-uploadData"]], {
+    import_mod()
+    if(is.null(colData(vals$original)$sample)) {
+      colData(vals$original)$sample = "sample"
     }
-  )
-
-  # see https://github.com/wleepang/shiny-directory-input
-  # for sample directory modal
-  observeEvent(
-    ignoreNULL = TRUE,
-    eventExpr = {
-      input$sDirectory
-    },
-    handlerExpr = {
-      if (input$sDirectory > 0) {
-        # condition prevents handler execution on initial app launch
-        path = choose.dir(default = readDirectoryInput(session, 'sDirectory'),
-                          caption="Choose a directory")
-        updateDirectoryInput(session, 'sDirectory', value = path)
-        if (!is.na(path)) {
-          updateTextInput(session, "sSampleID", value = basename(path))
-        }
-      }
-    }
-  )
-
-  # event listener for the base directory modal (need to populate table for sample names)
-  # see https://github.com/wleepang/shiny-directory-input
-  observeEvent(
-    ignoreNULL = TRUE,
-    eventExpr = {
-      input$bDirectory
-    },
-    handlerExpr = {
-      if (input$bDirectory > 0) {
-        # condition prevents handler execution on initial app launch
-        path = choose.dir(default = readDirectoryInput(session, 'bDirectory'),
-                          caption="Choose a directory")
-        updateDirectoryInput(session, 'bDirectory', value = path)
-        # clear the previous table of sample names
-        prevPath <- readDirectoryInput(session, 'bDirectory')
-        count <- 0
-        for (prev in list.dirs(prevPath, recursive = FALSE)) {
-          count <- count+1
-          removeUI(
-            selector = paste0("#sampleRow", count)
-          )
-        }
-        # create a new table for the selected directory
-        count <- 0
-        if (!is.na(path)) {
-          counts <- vector()
-          for (sample in list.dirs(path, recursive = FALSE)) {
-            count <- count+1
-            counts <- c(counts, count)
-            insertUI(
-              selector = "#bDirTable",
-              ui = fluidRow(
-                id = paste0("sampleRow", count),
-                column(6, basename(sample)),
-                column(6, textAreaInput(paste0("sampleName", count), "Sample Name", resize = "none", value = basename(sample)))
-              )
-            )
-          }
-        }
-      }
-    }
-  )
-
-  # event listeners for "Add Sample" buttons
-  observeEvent(input$addCR2Sample, {
-    showModal(importCRModal())
-  })
-  observeEvent(input$crOpt1, {
-    removeModal()
-    showModal(importCRBDir())
-  })
-  observeEvent(input$crOpt2, {
-    removeModal()
-    showModal(importCRSDir())
-  })
-  observeEvent(input$crOpt3, {
-    removeModal()
-    showModal(importCRDDir())
-  })
-  observeEvent(input$addCR3Sample, {
-    showModal(importCRModal())
-  })
-  observeEvent(input$addSSSample, {
-    showModal(importModal())
-  })
-  observeEvent(input$addBUSSample, {
-    showModal(importModal())
-  })
-  observeEvent(input$addSEQSample, {
-    showModal(importModal(needsDir = TRUE))
-  })
-  observeEvent(input$addOptSample, {
-    showModal(importModal())
-  })
-
-
-  # event listener for "Remove Sample" buttons
-  observeEvent(input$clearAllImport, {
-    for (entry in allImportEntries$samples) {
-      removeUI(selector = paste0("#", entry$id))
-    }
-    allImportEntries$samples <- list()
-  })
-
-  # event listeners for Cell Ranger import modals' OK buttons
-  # sample directory
-  observeEvent(input$SDirOK, {
-    samplePath <- readDirectoryInput(session, 'sDirectory')
-    # make sure a directory is selected
-    if (identical(samplePath, character(0))) {
-      showModal(importCRSDir(failed = TRUE))
+    
+    if (!is.null(vals$original)) {
+      vals$counts <- vals$original
+      # ToDo: Remove these automatic updates and replace with
+      # observeEvents functions that activate upon the tab selection
+      updateColDataNames()
+      updateFeatureAnnots()
+      updateNumSamples()
+      # updateAssayInputs()
+      updateGeneNames()
+      updateReddimInputs()
+      updateAltExpInputs()
+      updateSelectInput(session, "qcSampleSelect", choices = c("None", names(colData(vals$original))), selected = "sample")
+      shinyjs::show(id="import-annotationData")
+      js$enableTabs();
     } else {
-      # add the files to the appropriate reactiveValues
-      if (input$algoChoice == "cellRanger2") {
-        id <- paste0("snewSampleCR2", allImportEntries$id_count)
-        entry <- list(type="cellRanger2", id=id, params=list(cellRangerDirs = dirname(samplePath), sampleDirs = basename(samplePath), sampleNames = input$sSampleID))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count + 1
-      } else {
-        id <- paste0("snewSampleCR3", allImportEntries$id_count)
-        entry <- list(type="cellRanger3", id=id, params=list(cellRangerDirs = paste0(dirname(samplePath), "/"), sampleDirs = basename(samplePath), sampleNames = input$sSampleID))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count + 1
-      }
-      # add new row to table
-      addToGeneralSampleTable(input$algoChoice, id, samplePath, input$sSampleID)
-      # handler to remove the sample that was just added
-      observeEvent(input[[paste0("remove", id)]],{
-        removeUI(
-          selector = paste0("#", id)
-        )
-        toRemove <- vector()
-        for (entry in allImportEntries$samples) {
-          if (entry$id == id) {
-            toRemove <- c(toRemove, FALSE)
-          } else {
-            toRemove <- c(toRemove, TRUE)
-          }
-        }
-        allImportEntries$samples <- allImportEntries$samples[toRemove]
-      })
-      removeModal()
+      shinyalert::shinyalert("Error!", "The data upload failed!",
+                             type = "error")
     }
-  })
-
-  # data directory
-  observeEvent(input$DDirOK, {
-    dataPath <- readDirectoryInput(session, 'directory')
-    if ((!nzchar(input$dSampleID)) || (identical(dataPath, character(0)))) {
-      showModal(importCRDDir(failed = TRUE))
-    } else {
-      if (input$algoChoice == "cellRanger2") {
-        id <- paste0("dnewSampleCR2", allImportEntries$id_count)
-        entry <- list(type="cellRanger2", id=id, params=list(dataDir = dataPath, sampleName = input$dSampleID))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count + 1
-      } else {
-        id <- paste0("dnewSampleCR3", allImportEntries$id_count)
-        entry <- list(type="cellRanger3", id=id, params=list(dataDir = dataPath, sampleName = input$dSampleID))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count + 1
-      }
-      # add new row to table
-      addToGeneralSampleTable(input$algoChoice, id, dataPath, input$dSampleID)
-      observeEvent(input[[paste0("remove", id)]],{
-        removeUI(
-          selector = paste0("#", id)
-        )
-        toRemove <- vector()
-        for (entry in allImportEntries$samples) {
-          if (entry$id == id) {
-            toRemove <- c(toRemove, FALSE)
-          } else {
-            toRemove <- c(toRemove, TRUE)
-          }
-        }
-        allImportEntries$samples <- allImportEntries$samples[toRemove]
-      })
-      removeModal()
-    }
-  })
-
-  # base directory
-  observeEvent(input$BDirOK, {
-    basePath <- readDirectoryInput(session, 'bDirectory')
-    # if the user doesn't specify a base directory, show the modal again with the warning message
-    if (identical(basePath, character(0))) {
-      showModal(importCRBDir(failed = TRUE))
-    } else {
-      allDirs <- list.dirs(basePath, recursive = FALSE)
-      # if we are adding a new CellRangerV2 sample
-      if (input$algoChoice == "cellRanger2") {
-        allUI <- vector()
-        allIDs <- vector()
-        count <- 0
-        for (sample in allDirs) {
-          count <- count + 1
-          name <- input[[paste0("sampleName", count)]]
-          if (!nzchar(name)) {
-            name <- basename(sample)
-          }
-          id <- paste0("bnewSampleCR2", allImportEntries$id_count)
-          entry <- list(type="cellRanger2", id=id, params=list(cellRangerDirs = substr(basePath, 1, nchar(basePath)-1), sampleDirs = basename(sample), sampleNames = name))
-          allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-          fluidRowStyle <- paste0(paste0("#", id), "{border-bottom: 1px solid #bababa; padding-top: .9%; padding-bottom: .5%}")
-          removeBtnStyle <- paste0(paste0("#remove", id), "{padding-top: 0; padding-bottom: 0;}")
-          ui_i <- fluidRow(
-            id = id,
-            tags$style(HTML(paste0(fluidRowStyle, removeBtnStyle))),
-            column(3, basePath),
-            column(3, basename(sample)),
-            column(3, name),
-            column(3, actionButton(paste0("remove", id), "X"))
-          )
-          allImportEntries$id_count <- allImportEntries$id_count + 1
-          allUI <- c(allUI, list(ui_i))
-          allIDs <- c(allIDs, id)
-        }
-      } else { # if we are adding a new CellRangerV3 sample
-        allUI <- vector()
-        allIDs <- vector()
-        count <- 0
-        for (sample in allDirs) {
-          count <- count + 1
-          name <- input[[paste0("sampleName", count)]]
-          if (!nzchar(name)) {
-            name <- basename(sample)
-          }
-          id <- paste0("bnewSampleCR3", allImportEntries$id_count)
-          entry <- list(type="cellRanger3", id=id, params=list(cellRangerDirs = substr(basePath, 1, nchar(basePath)-1), sampleDirs = basename(sample), sampleNames = name))
-          allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-          fluidRowStyle <- paste0(paste0("#", id), "{border-bottom: 1px solid #bababa; padding-top: .9%; padding-bottom: .5%}")
-          removeBtnStyle <- paste0(paste0("#remove", id), "{padding-top: 0; padding-bottom: 0;}")
-          ui_i <- fluidRow(
-            id = id,
-            tags$style(HTML(paste0(fluidRowStyle, removeBtnStyle))),
-            column(3, basePath),
-            column(3, basename(sample)),
-            column(3, name),
-            column(3, actionButton(paste0("remove", id), "X"))
-          )
-          allImportEntries$id_count <- allImportEntries$id_count + 1
-          allUI <- c(allUI, list(ui_i))
-          allIDs <- c(allIDs, id)
-        }
-      }
-      # insert all the new sample rows
-      for (i in seq_along(allUI)) {
-        insertUI(
-          selector = "#newSampleImport",
-          ui = allUI[i]
-        )
-      }
-      # create event handlers for all the remove buttons
-      # from: https://stackoverflow.com/questions/40038749/r-shiny-how-to-write-loop-for-observeevent
-      lapply(
-        X = allIDs,
-        FUN = function(id_i){
-          observeEvent(input[[paste0("remove", id_i)]], {
-            removeUI(
-              selector = paste0("#", id_i)
-            )
-            toRemove <- vector()
-            for (entry in allImportEntries$samples) {
-              if (entry$id == id_i) {
-                toRemove <- c(toRemove, FALSE)
-              } else {
-                toRemove <- c(toRemove, TRUE)
-              }
-            }
-            allImportEntries$samples <- allImportEntries$samples[toRemove]
-          })
-        }
-      )
-      removeModal()
-    }
-  })
-
-  # event handler for pressing OK on the import modal
-  observeEvent(input$modalOk, {
-    samplePath <- shinyFiles::parseDirPath(volumes, input$sample)
-    basePath <- readDirectoryInput(session, 'directory')
-    curFiles <- list()
-    if ((!nzchar(input$sampleName)) || (identical(basePath, character(0)))) {
-      showModal(importModal(failed = TRUE))
-    } else {
-      entry <- list()
-      if (input$algoChoice == "starSolo") {
-        id <- paste0("newSampleSS", allImportEntries$id_count)
-        entry <- list(type="starSolo", id = id, params=list(STARsoloDirs = basePath, samples = input$sampleName))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count+1
-      } else if (input$algoChoice == "busTools") {
-        id <- paste0("newSampleBUS", allImportEntries$id_count)
-        entry <- list(type="busTools", id = id, params=list(BUStoolsDirs = substr(basePath, 1, nchar(basePath)-1), samples = input$sampleName))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count+1
-      } else if (input$algoChoice == "seqc") {
-        id <- paste0("newSampleSEQ", allImportEntries$id_count)
-        entry <- list(type="seqc", id = id, params=list(seqcDirs = basePath, prefix = input$sampleID, samples = input$sampleName))
-        updateTextInput(session, "sampleID", value = "")
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count+1
-      } else if (input$algoChoice == "optimus") {
-        id <- paste0("newSampleOpt", allImportEntries$id_count)
-        entry <- list(type="optimus", id = id, params=list(OptimusDirs = basePath, samples = input$sampleName))
-        allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-        allImportEntries$id_count <- allImportEntries$id_count+1
-      }
-      addToGeneralSampleTable(input$algoChoice, id, basePath, input$sampleName)
-      observeEvent(input[[paste0("remove", id)]],{
-        removeUI(
-          selector = paste0("#", id)
-        )
-        toRemove <- vector()
-        for (entry in allImportEntries$samples) {
-          if (entry$id == id) {
-            toRemove <- c(toRemove, FALSE)
-          } else {
-            toRemove <- c(toRemove, TRUE)
-          }
-        }
-        allImportEntries$samples <- allImportEntries$samples[toRemove]
-      })
-      removeModal()
-    }
-  })
-
-  # Event handler to import a file input
-  observeEvent(input$addFilesImport, {
-    id <- paste0("newSampleFiles", allImportEntries$id_count)
-    entry <- list(type="files", id = id, params=list(assayFile = input$countsfile$datapath, annotFile = input$annotFile$datapath,
-                                                     featureFile = input$featureFile$datapath, assayName = input$inputAssayType))
-    allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-    allImportEntries$id_count <- allImportEntries$id_count+1
-    assayFileCol <- ""
-    annotFileCol <- ""
-    featureFileCol <- ""
-    if (!is.null(input$countsfile$datapath)) {
-      assayFileCol <- paste0("Assay: ", input$countsfile$datapath)
-    }
-    if (!is.null(input$annotFile$datapath)) {
-      annotFileCol <- paste0("Annotation: ", input$annotFile$datapath)
-    }
-    if (!is.null(input$featureFile$datapath)) {
-      featureFileCol <- paste0("Features: ", input$featureFile$datapath)
-    }
-
-    locCol <- paste(c(assayFileCol, annotFileCol, featureFileCol), collapse = "\n")
-
-    addToGeneralSampleTable("files", id, locCol, input$inputAssayType)
-
-    observeEvent(input[[paste0("remove", id)]],{
-      removeUI(
-        selector = paste0("#", id)
-      )
-      toRemove <- vector()
-      for (entry in allImportEntries$samples) {
-        if (entry$id == id) {
-          toRemove <- c(toRemove, FALSE)
-        } else {
-          toRemove <- c(toRemove, TRUE)
-        }
-      }
-      allImportEntries$samples <- allImportEntries$samples[toRemove]
-    })
-  })
-
-  # Event handler to import an example input
-  observeEvent(input$addExampleImport, {
-    id <- paste0("newSampleExample", allImportEntries$id_count)
-    entry <- list(type="example", id = id, params=list(dataset = input$selectExampleData))
-    allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-    allImportEntries$id_count <- allImportEntries$id_count+1
-
-    scRNAseqDatasets <- c("fluidigm_pollen", "allen_tasic")
-    tenxPbmcDatasets <- c("pbmc3k", "pbmc4k", "pbmc6k", "pbmc8k", "pbmc33k", "pbmc68k")
-    locCol <- ""
-    if (input$selectExampleData %in% scRNAseqDatasets) {
-      locCol <- "scRNA"
-    } else {
-      locCol <- "TENx"
-    }
-
-    addToGeneralSampleTable("example", id, locCol, input$selectExampleData)
-
-
-    observeEvent(input[[paste0("remove", id)]],{
-      removeUI(
-        selector = paste0("#", id)
-      )
-      toRemove <- vector()
-      for (entry in allImportEntries$samples) {
-        if (entry$id == id) {
-          toRemove <- c(toRemove, FALSE)
-        } else {
-          toRemove <- c(toRemove, TRUE)
-        }
-      }
-      allImportEntries$samples <- allImportEntries$samples[toRemove]
-    })
-  })
-
-  # Event handler to import an RDS input
-  observeEvent(input$addRDSImport, {
-    id <- paste0("newSampleRDS", allImportEntries$id_count)
-    entry <- list(type="rds", id = id, params=list(rdsFile=input$rdsFile$datapath))
-    allImportEntries$samples <- c(allImportEntries$samples, list(entry))
-    allImportEntries$id_count <- allImportEntries$id_count+1
-
-    addToGeneralSampleTable("rds", id, input$rdsFile$datapath, "")
-
-    observeEvent(input[[paste0("remove", id)]],{
-      removeUI(
-        selector = paste0("#", id)
-      )
-      toRemove <- vector()
-      for (entry in allImportEntries$samples) {
-        if (entry$id == id) {
-          toRemove <- c(toRemove, FALSE)
-        } else {
-          toRemove <- c(toRemove, TRUE)
-        }
-      }
-      allImportEntries$samples <- allImportEntries$samples[toRemove]
-    })
-  })
-
-  # Event handler for "Upload" button on import page
-  observeEvent(input$uploadData, {
-    withBusyIndicatorServer("uploadData", {
-      if (length(allImportEntries$samples) == 0) {
-        stop("You have not selected any samples to import.")
-      }
-      sceObj <- importMultipleSources(allImportEntries)
-      if (input$combineSCEChoice == "addToExistingSCE") {
-        if(!is.null(vals$original)) {
-          sceList <- list(vals$original, sceObj)
-          vals$original <- combineSCE(sceList = sceList,
-                                      by.r = NULL,
-                                      by.c = Reduce(intersect, lapply(sceList, function(x) { colnames(colData(x))})),
-                                      combined = TRUE)
-        } else {
-          vals$original <- sceObj
-        }
-      } else {
-        vals$original <- sceObj
-      }
-
-      # clear table and empty reactive
-      for (entry in allImportEntries$samples) {
-        removeUI(selector = paste0("#", entry$id))
-      }
-      allImportEntries$samples <- list()
-
-      # Add sample variable if it was not included
-      if(is.null(colData(vals$original)$sample)) {
-        colData(vals$original)$sample = "sample"
-      }
-
-      if (!is.null(vals$original)) {
-        vals$counts <- vals$original
-
-        # ToDo: Remove these automatic updates and replace with
-        # observeEvents functions that activate upon the tab selection
-        updateColDataNames()
-        updateFeatureAnnots()
-        updateNumSamples()
-        # updateAssayInputs()
-        updateGeneNames()
-        updateReddimInputs()
-        updateAltExpInputs()
-        updateSelectInput(session, "qcSampleSelect", choices = c("None", names(colData(vals$original))), selected = "sample")
-        shinyjs::show(id="annotationData")
-        js$enableTabs();
-      } else {
-        shinyalert::shinyalert("Error!", "The data upload failed!",
-                               type = "error")
-      }
-      vals$gsvaRes <- NULL
-      vals$gsvaLimma <- NULL
-      vals$visplotobject <- NULL
-      vals$enrichRes <- NULL
-      vals$dimRedPlot <- NULL
-      vals$dimRedPlot_geneExp <- NULL
-      vals$dendrogram <- NULL
-      vals$pcX <- NULL
-      vals$pcY <- NULL
-      vals$batchRes <- NULL
-      vals$hvgCalculated <- list(status = FALSE, method = NULL)
-      dbList <- getMSigDBTable()
-      geneSetDBChoices <- formatGeneSetDBChoices(dbIDs = dbList$ID, dbCats = dbList$Category_Description)
-      updateCheckboxGroupInput(session, 'geneSetDB', choices = geneSetDBChoices)
-    })
+    vals$gsvaRes <- NULL
+    vals$gsvaLimma <- NULL
+    vals$visplotobject <- NULL
+    vals$enrichRes <- NULL
+    vals$dimRedPlot <- NULL
+    vals$dimRedPlot_geneExp <- NULL
+    vals$dendrogram <- NULL
+    vals$pcX <- NULL
+    vals$pcY <- NULL
+    vals$batchRes <- NULL
+    vals$hvgCalculated <- list(status = FALSE, method = NULL)
+    dbList <- getMSigDBTable()
+    geneSetDBChoices <- formatGeneSetDBChoices(dbIDs = dbList$ID, dbCats = dbList$Category_Description)
+    updateCheckboxGroupInput(session, 'geneSetDB', choices = geneSetDBChoices)
   })
 
 
@@ -1513,15 +920,15 @@ shinyServer(function(input, output, session) {
   #    })
   #  })
 
-  #Render summary table
-  output$summarycontents <- renderTable({
-    req(vals$counts)
-
-    # Setting 'useAssay=NULL' assumes that the first assay is the one to count
-    singleCellTK::summarizeSCE(inSCE = vals$counts,
-                               useAssay = NULL,
-                               sampleVariableName = "sample")
-  }, striped = TRUE, border = TRUE, align = "c", spacing = "l")
+  # #Render summary table
+  # output$summarycontents <- renderTable({
+  #   req(vals$counts)
+  # 
+  #   # Setting 'useAssay=NULL' assumes that the first assay is the one to count
+  #   singleCellTK::summarizeSCE(inSCE = vals$counts,
+  #                              useAssay = NULL,
+  #                              sampleVariableName = "sample")
+  # }, striped = TRUE, border = TRUE, align = "c", spacing = "l")
 
 
   #Reset the data to the original uploaded dataset
