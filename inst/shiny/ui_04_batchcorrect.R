@@ -1,5 +1,8 @@
 shinyPanelBatchcorrect <- fluidPage(
   includeCSS('styles.CSS'),
+  h1("Normalization & Batch Correction"),
+  h5(tags$a(href = "https://www.sctk.science/articles/tab04_batch-correction",
+            "(help)", target = "_blank")),
   tabsetPanel(
   tabPanel(
     "Normalization", fluid = TRUE,
@@ -21,7 +24,9 @@ shinyPanelBatchcorrect <- fluidPage(
                                           "Scater - LogNormCounts" = "LNC",
                                           "Scater - CPM" = "CPM")
                             ),
-                            selectInput("normalizeAssaySelect", "Select Assay:", currassays),
+                            uiOutput("normalizeAssaySelect"),
+                            #selectInput("normalizeAssaySelect", "Select Assay:", currassays),
+                            #uiOutput("abcout"),
                             conditionalPanel(
                               condition = "input.normalizeAssayMethodSelect == 'LogNormalize'
                               || input.normalizeAssayMethodSelect == 'CLR'
@@ -97,8 +102,6 @@ shinyPanelBatchcorrect <- fluidPage(
     ),
   tabPanel(
     "Batch Correction",
-    h5(tags$a(href = "https://compbiomed.github.io/sctk_docs/articles/batch_correction.html#ui-usage-1",
-              "(help)", target = "_blank")),
     sidebarLayout(
       sidebarPanel(
         h3("Parameters"),
